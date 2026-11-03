@@ -1,0 +1,17 @@
+# Gradle & build output
+.gradle/
+build/
+.kotlin/
+captures/
+.cxx/
+
+# Android Studio
+.idea/
+*.iml
+local.properties
+
+# Release signing key - never commit, back it up somewhere safe
+keystore/
+
+# Exported APKs for sharing
+apk/

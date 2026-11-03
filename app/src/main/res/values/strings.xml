@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="screen_color_service_label">PhotonSync no-tap sync</string>
+    <string name="screen_color_service_description">Lets PhotonSync keep your LED strip matched to your screen after every unlock, with no sharing prompt. It only works out the screen\'s average colour. Nothing is saved or sent anywhere, and it does not read text or see what you type.</string>
+</resources>

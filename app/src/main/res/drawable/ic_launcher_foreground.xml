@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Three overlapping RGB circles inside the adaptive-icon safe zone -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillAlpha="0.85"
+        android:fillColor="#F38BA8"
+        android:pathData="M38,44a16,16 0,1 1,32 0a16,16 0,1 1,-32 0z" />
+    <path
+        android:fillAlpha="0.85"
+        android:fillColor="#A6E3A1"
+        android:pathData="M29,60a16,16 0,1 1,32 0a16,16 0,1 1,-32 0z" />
+    <path
+        android:fillAlpha="0.85"
+        android:fillColor="#89B4FA"
+        android:pathData="M47,60a16,16 0,1 1,32 0a16,16 0,1 1,-32 0z" />
+</vector>
