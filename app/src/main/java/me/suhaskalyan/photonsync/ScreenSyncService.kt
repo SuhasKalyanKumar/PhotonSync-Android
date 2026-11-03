@@ -30,7 +30,6 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.os.Process
 import android.os.SystemClock
-import android.provider.Settings
 import android.util.DisplayMetrics
 import android.view.Display
 import kotlin.math.roundToInt
@@ -59,7 +58,7 @@ class ScreenSyncService : Service() {
         private const val UI_INTERVAL_MS = 100L
         private const val VOICE_COOLDOWN_MS = 1000L
         private const val SCREEN_OFF_GRACE_MS = 3000L // a share can end just after the screen wakes back up
-        private const val PROMPT_DEBOUNCE_MS = 3000L
+        private const val POWER_OFF_AWAKE_MS = 3000L // long enough for an outro and both power-off commands
         private const val TOO_DARK = 16f
         private const val WAKE_FALLBACK_LEVEL = 128f // shown on wake when the last screen colour was black
 
@@ -147,7 +146,6 @@ class ScreenSyncService : Service() {
     private val staticColor = intArrayOf(255, 255, 255)
     private val colorBeforeScreenOff = FloatArray(3)
     private var lastScreenOff = 0L
-    private var lastResumePrompt = 0L
     private var lastVoiceCommand = 0L
     @Volatile private var stopping = false
 
@@ -572,10 +570,20 @@ class ScreenSyncService : Service() {
     // Screen off: strip goes dark. Screen on: strip comes back at once with the last colour.
     // Android 15+ also ends the screen share on every lock, so live sync restarts after the unlock.
     // -------------------------------------------------------------
+    // Unplugged, the CPU can sleep right after the screen goes off and strand the power-off commands, leaving the strip lit
+    private val powerOffWakeLock by lazy {
+        getSystemService(PowerManager::class.java)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PhotonSync:powerOff")
+            .apply { setReferenceCounted(false) }
+    }
+
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
-                Intent.ACTION_SCREEN_OFF -> handler.post(::onScreenOff)
+                Intent.ACTION_SCREEN_OFF -> {
+                    powerOffWakeLock.acquire(POWER_OFF_AWAKE_MS)
+                    handler.post(::onScreenOff)
+                }
                 Intent.ACTION_SCREEN_ON -> handler.post(::onScreenOn)
                 Intent.ACTION_USER_PRESENT -> handler.post(::resumeCaptureIfPaused)
             }
@@ -586,7 +594,7 @@ class ScreenSyncService : Service() {
         current.copyInto(colorBeforeScreenOff)
         lastScreenOff = SystemClock.uptimeMillis()
         SyncState.screenOff = true
-        // Send it now: the tick timer stops once the CPU sleeps
+        // Send it now, rather than waiting for the next tick
         if (!animating && strip.isReady && stripPoweredOn) {
             strip.setPower(false)
             stripPoweredOn = false
@@ -619,8 +627,6 @@ class ScreenSyncService : Service() {
             handler.post(screenshotLoop)
             SyncState.log("Screen Sync resumed")
             SyncState.notifyChanged()
-        } else {
-            promptResume()
         }
     }
 
@@ -700,7 +706,7 @@ class ScreenSyncService : Service() {
         imageReader = null
         projection?.unregisterCallback(projectionCallback)
         projection = null
-        SyncState.log("Phone locked: live sync restarts when you unlock.")
+        SyncState.log("Phone locked: open PhotonSync after unlocking to restart live sync.")
         pauseState()
         if (!isLocked()) resumeCaptureIfPaused() // the share ended after the phone had already woken up
     }
@@ -709,22 +715,6 @@ class ScreenSyncService : Service() {
         SyncState.capturePaused = true
         SyncState.notifyChanged()
         updateForeground()
-    }
-
-    /**
-     * Restarts capture after an unlock. Android shows its own sharing screen unless no-tap sync is on in Accessibility
-     * settings. Without the overlay permission it can't open from the background, so opening the app resumes instead.
-     */
-    private fun promptResume() {
-        val now = SystemClock.uptimeMillis()
-        if (lastResumePrompt != 0L && now - lastResumePrompt < PROMPT_DEBOUNCE_MS) return
-        lastResumePrompt = now
-        if (!Settings.canDrawOverlays(this)) return
-        try {
-            startActivity(Intent(this, ResumeActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        } catch (e: Exception) {
-            SyncState.log("Could not restart screen sync: ${e.message}")
-        }
     }
 
     // -------------------------------------------------------------

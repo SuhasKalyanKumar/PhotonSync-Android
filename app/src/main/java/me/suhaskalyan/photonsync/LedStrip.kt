@@ -135,6 +135,7 @@ class LedStrip(
     /** The real power switch, not a black colour: the strip keeps its colour for when a timer turns it back on. */
     fun setPower(on: Boolean) {
         if (closed || !isReady) return
+        if (!on) pending = null // a colour still waiting must not follow the strip switching off
         commands.addAll(if (on) POWER_ON else POWER_OFF)
         flush()
     }

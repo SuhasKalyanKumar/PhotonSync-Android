@@ -12,7 +12,6 @@ import android.graphics.drawable.GradientDrawable
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import android.view.View
 import android.widget.Button
 import android.widget.ScrollView
@@ -161,7 +160,7 @@ class MainActivity : Activity() {
 
         statusText.text = when {
             !running -> "Idle"
-            SyncState.capturePaused -> "Paused · resumes on unlock"
+            SyncState.capturePaused -> "Paused · open the app to resume"
             strip != null -> "Linked: $strip"
             else -> "Waiting for ${savedName ?: "LED strip"}…"
         }

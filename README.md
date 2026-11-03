@@ -29,11 +29,15 @@ The voice model is about 40 MB and downloads the first time you turn on the mic.
 
 ## Skip the prompt after unlocking
 
-Android 15 and newer ends screen sharing whenever the phone locks, then asks again. To skip that, turn on **PhotonSync no-tap sync** in Accessibility settings.
+Android 15 and newer ends screen sharing whenever the phone locks, so you open PhotonSync and allow sharing again.
 
-If the option is greyed out, open App info for PhotonSync, tap the ⋮ menu, then **Allow restricted settings**.
+To skip that, install the **no-tap** APK from the same release instead, then turn on **PhotonSync no-tap sync** in Accessibility settings. If the option is greyed out, open App info for PhotonSync, tap the ⋮ menu, then **Allow restricted settings**.
 
-No-tap sync only reads your screen's average colour, and nothing is saved or sent anywhere. Colours update about 3 times a second, and force-stopping the app turns the option off.
+No-tap sync only reads your screen's average colour, and nothing is saved or sent anywhere. Colours update about 3 times a second, and force-stopping the app turns the option off. Because it uses Accessibility, Android may warn you more about this version.
+
+## If Play Protect warns you
+
+PhotonSync isn't on the Play Store, so Android may warn you when you install it. Tap **More details**, then **Install anyway**.
 
 ## Good to know
 

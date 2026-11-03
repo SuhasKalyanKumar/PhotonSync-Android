@@ -4,7 +4,7 @@ plugins {
     id("com.android.application")
 }
 
-val appVersion = "1.3.0"
+val appVersion = "1.3.1"
 
 // Release signing key lives in keystore/ (gitignored). Without it, release builds are left unsigned.
 val keystoreProps = Properties().apply {
@@ -14,13 +14,13 @@ val keystoreProps = Properties().apply {
 
 android {
     namespace = "me.suhaskalyan.photonsync"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "me.suhaskalyan.photonsync"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 4
+        targetSdk = 36
+        versionCode = 5
         versionName = appVersion
 
         // Vosk ships native code; these two ABIs cover practically every phone and keep the APK small
@@ -40,7 +40,18 @@ android {
         }
     }
 
+    // The normal APK leaves out Accessibility, which security scanners treat with suspicion on sideloaded apps.
+    // The no-tap APK adds it back, so sync can restart after an unlock with no prompt.
+    flavorDimensions += "capture"
+    productFlavors {
+        create("standard") { dimension = "capture" }
+        create("notap") { dimension = "capture" }
+    }
+
     buildTypes {
+        debug {
+            ndk { abiFilters += "x86_64" } // for testing on an emulator
+        }
         release {
             isMinifyEnabled = false
             signingConfig = signingConfigs.findByName("release")
@@ -57,10 +68,14 @@ dependencies {
     implementation("com.alphacephei:vosk-android:0.3.75")
 }
 
-// ./gradlew exportApk -> apk/PhotonSync-<version>.apk, ready to send to friends
+// ./gradlew exportApk -> apk/PhotonSync-<version>.apk and the -no-tap version, ready to share
 tasks.register<Copy>("exportApk") {
-    dependsOn("assembleRelease")
-    from(layout.buildDirectory.file("outputs/apk/release/app-release.apk"))
+    dependsOn("assembleStandardRelease", "assembleNotapRelease")
     into(rootProject.layout.projectDirectory.dir("apk"))
-    rename { "PhotonSync-$appVersion.apk" }
+    from(layout.buildDirectory.file("outputs/apk/standard/release/app-standard-release.apk")) {
+        rename { "PhotonSync-$appVersion.apk" }
+    }
+    from(layout.buildDirectory.file("outputs/apk/notap/release/app-notap-release.apk")) {
+        rename { "PhotonSync-$appVersion-no-tap.apk" }
+    }
 }
