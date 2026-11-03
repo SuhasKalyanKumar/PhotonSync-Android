@@ -58,7 +58,7 @@ class ScreenSyncService : Service() {
         private const val UI_INTERVAL_MS = 100L
         private const val VOICE_COOLDOWN_MS = 1000L
         private const val SCREEN_OFF_GRACE_MS = 3000L // a share can end just after the screen wakes back up
-        private const val POWER_OFF_AWAKE_MS = 3000L // long enough for an outro and both power-off commands
+        private const val LOCKED_AWAKE_MAX_MS = 12 * 60 * 60 * 1000L // a safety limit, in case an unlock is never seen
         private const val TOO_DARK = 16f
         private const val WAKE_FALLBACK_LEVEL = 128f // shown on wake when the last screen colour was black
 
@@ -217,7 +217,7 @@ class ScreenSyncService : Service() {
             SyncState.syncMode = true
             SyncState.rainbow = false
             SyncState.micOn = false
-            SyncState.screenOff = false
+            SyncState.locked = false
         }
         SyncState.capturePaused = false
         // Android 14+ requires the service to be foreground before the projection is created
@@ -257,6 +257,7 @@ class ScreenSyncService : Service() {
     override fun onDestroy() {
         stopping = true
         unregisterReceiver(screenReceiver)
+        if (lockedWakeLock.isHeld) lockedWakeLock.release()
         voice.release()
         SyncState.running = false
         SyncState.capturePaused = false
@@ -271,10 +272,10 @@ class ScreenSyncService : Service() {
             imageReader?.close()
             projection?.stop()
             val finish = {
-                SyncState.screenOff = false
+                SyncState.locked = false
                 strip.shutdown { thread.quitSafely() }
             }
-            if (strip.isReady && stripPoweredOn && !SyncState.screenOff) {
+            if (strip.isReady && stripPoweredOn) {
                 playOutro()
                 handler.postDelayed(finish, introFrames().size * ANIMATION_STEP_MS)
             } else {
@@ -396,7 +397,7 @@ class ScreenSyncService : Service() {
                 for (c in 0..2) current[c] += SMOOTHING * (target[c] - current[c])
                 val brightness = if (wantOn) SyncState.brightness else 0f
                 val source = when {
-                    SyncState.rainbow -> rainbowColor()
+                    SyncState.rainbow || SyncState.locked || (SyncState.capturePaused && SyncState.syncMode) -> rainbowColor()
                     SyncState.syncMode -> current
                     else -> FloatArray(3) { staticColor[it].toFloat() }
                 }
@@ -419,11 +420,11 @@ class ScreenSyncService : Service() {
         }
     }
 
-    private fun stripShouldBeOn() = SyncState.powerOn && !SyncState.screenOff
+    private fun stripShouldBeOn() = SyncState.powerOn
 
     private fun onStripLinked() {
         stripPoweredOn = stripShouldBeOn()
-        SyncState.log(if (stripPoweredOn) "Sent power-on to strip" else "Linked, staying off while the screen is off")
+        SyncState.log(if (stripPoweredOn) "Sent power-on to strip" else "Linked, staying off")
         playIntro(startDelay = 0L)
         handler.postDelayed({ sendTimer(announce = false) }, introFrames().size * ANIMATION_STEP_MS + 100)
     }
@@ -461,11 +462,6 @@ class ScreenSyncService : Service() {
 
     private fun playFrames(frames: List<IntArray>, startDelay: Long) {
         val id = ++animationId // a newer animation takes over from one still playing
-        if (SyncState.screenOff) { // never light up a strip that is meant to be dark
-            animating = false
-            lastSent.fill(-1)
-            return
-        }
         animating = true
         frames.forEachIndexed { i, c ->
             handler.postDelayed({ if (id == animationId) strip.sendColor(c[0], c[1], c[2]) }, startDelay + i * ANIMATION_STEP_MS)
@@ -570,10 +566,10 @@ class ScreenSyncService : Service() {
     // Screen off: strip goes dark. Screen on: strip comes back at once with the last colour.
     // Android 15+ also ends the screen share on every lock, so live sync restarts after the unlock.
     // -------------------------------------------------------------
-    // Unplugged, the CPU can sleep right after the screen goes off and strand the power-off commands, leaving the strip lit
-    private val powerOffWakeLock by lazy {
+    // Unplugged, the CPU would otherwise sleep with the screen and freeze the rainbow on one colour
+    private val lockedWakeLock by lazy {
         getSystemService(PowerManager::class.java)
-            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PhotonSync:powerOff")
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PhotonSync:lockedRainbow")
             .apply { setReferenceCounted(false) }
     }
 
@@ -581,35 +577,40 @@ class ScreenSyncService : Service() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
                 Intent.ACTION_SCREEN_OFF -> {
-                    powerOffWakeLock.acquire(POWER_OFF_AWAKE_MS)
+                    lockedWakeLock.acquire(LOCKED_AWAKE_MAX_MS)
                     handler.post(::onScreenOff)
                 }
                 Intent.ACTION_SCREEN_ON -> handler.post(::onScreenOn)
-                Intent.ACTION_USER_PRESENT -> handler.post(::resumeCaptureIfPaused)
+                Intent.ACTION_USER_PRESENT -> handler.post(::onUnlocked)
             }
         }
     }
 
     private fun onScreenOff() {
-        current.copyInto(colorBeforeScreenOff)
+        if (!SyncState.locked) current.copyInto(colorBeforeScreenOff)
         lastScreenOff = SystemClock.uptimeMillis()
-        SyncState.screenOff = true
-        // Send it now, rather than waiting for the next tick
-        if (!animating && strip.isReady && stripPoweredOn) {
-            strip.setPower(false)
-            stripPoweredOn = false
-        }
+        SyncState.locked = true
+        updateForeground()
         SyncState.notifyChanged()
     }
 
     private fun onScreenOn() {
-        SyncState.screenOff = false
-        // The last frames before sleep are often black, which would leave the strip dark on wake
-        val restored = if (colorBeforeScreenOff.max() < TOO_DARK) FloatArray(3) { WAKE_FALLBACK_LEVEL } else colorBeforeScreenOff
-        restored.copyInto(target)
-        restored.copyInto(current)
+        if (!isLocked()) onUnlocked() // no keyguard, so there won't be an unlock to wait for
+    }
+
+    /** Back to whatever the strip was doing before the lock. */
+    private fun onUnlocked() {
+        if (lockedWakeLock.isHeld) lockedWakeLock.release()
+        if (SyncState.locked) {
+            SyncState.locked = false
+            // The last frames before sleep are often black, which would leave the strip dark for a moment
+            val restored = if (colorBeforeScreenOff.max() < TOO_DARK) FloatArray(3) { WAKE_FALLBACK_LEVEL } else colorBeforeScreenOff
+            restored.copyInto(target)
+            restored.copyInto(current)
+            updateForeground()
+        }
         SyncState.notifyChanged()
-        if (!isLocked()) resumeCaptureIfPaused() // no keyguard, so there won't be an unlock to wait for
+        resumeCaptureIfPaused()
     }
 
     private fun isLocked(): Boolean =
@@ -638,7 +639,7 @@ class ScreenSyncService : Service() {
         SyncState.syncMode = true
         SyncState.rainbow = false
         SyncState.micOn = false
-        SyncState.screenOff = false
+        SyncState.locked = false
         SyncState.capturePaused = false
         SyncState.screenshotMode = true
         if (!updateForeground()) {
@@ -661,18 +662,18 @@ class ScreenSyncService : Service() {
     private val screenshotLoop = object : Runnable {
         override fun run() {
             when {
-                SyncState.screenOff -> {} // nothing to read, and it would only return black
+                SyncState.locked -> {} // nothing to read, and it would only return black
                 ScreenColorService.isEnabled -> {
                     screenshotWarningShown = false
                     ScreenColorService.captureAverage(handler) { r, g, b ->
-                        if (!SyncState.screenOff) {
+                        if (!SyncState.locked) {
                             target[0] = r
                             target[1] = g
                             target[2] = b
                         }
                     }
                 }
-                !screenshotWarningShown -> {
+                !screenshotWarningShown && !isLocked() -> {
                     screenshotWarningShown = true
                     SyncState.log("No-tap mode was turned off in Accessibility settings, so colours stopped updating.")
                 }
@@ -685,7 +686,7 @@ class ScreenSyncService : Service() {
         override fun onStop() {
             if (stopping) return
             val screenJustSlept = SystemClock.uptimeMillis() - lastScreenOff < SCREEN_OFF_GRACE_MS
-            if (isLocked() || SyncState.screenOff || screenJustSlept) {
+            if (isLocked() || SyncState.locked || screenJustSlept) {
                 pauseCapture()
             } else {
                 SyncState.log("Screen sharing was stopped.")
@@ -706,7 +707,7 @@ class ScreenSyncService : Service() {
         imageReader = null
         projection?.unregisterCallback(projectionCallback)
         projection = null
-        SyncState.log("Phone locked: open PhotonSync after unlocking to restart live sync.")
+        SyncState.log("Screen sharing ended with the lock. Rainbow until you open PhotonSync and allow it again.")
         pauseState()
         if (!isLocked()) resumeCaptureIfPaused() // the share ended after the phone had already woken up
     }
@@ -769,7 +770,11 @@ class ScreenSyncService : Service() {
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("PhotonSync")
             .setContentText(
-                (if (SyncState.capturePaused) "Paused while locked" else "Screen sync on") +
+                when {
+                    SyncState.locked -> "Rainbow while locked"
+                    SyncState.capturePaused -> "Rainbow · open the app to sync again"
+                    else -> "Screen sync on"
+                } +
                     (if (SyncState.micOn) " · listening" else " · mic off")
             )
             .setContentIntent(openApp)

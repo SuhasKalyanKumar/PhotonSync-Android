@@ -18,7 +18,7 @@ object SyncState {
     @Volatile var micOn = false
     @Volatile var capturePaused = false // screen share ended by a lock; waiting for consent after unlock
     @Volatile var screenshotMode = false // colours come from ScreenColorService instead of a screen share
-    @Volatile var screenOff = false // the strip stays dark until the screen comes back on
+    @Volatile var locked = false // screen off or not yet unlocked: the strip plays the rainbow until the unlock
     @Volatile var stripName: String? = null
     @Volatile var color = Color.BLACK
     @Volatile var logVersion = 0

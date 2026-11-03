@@ -160,14 +160,14 @@ class MainActivity : Activity() {
 
         statusText.text = when {
             !running -> "Idle"
-            SyncState.capturePaused -> "Paused · open the app to resume"
+            SyncState.capturePaused -> "Rainbow · allow sharing to sync"
             strip != null -> "Linked: $strip"
             else -> "Waiting for ${savedName ?: "LED strip"}…"
         }
         val mode = when {
             !SyncState.powerOn -> "Power off"
-            SyncState.screenOff -> "Screen off"
-            SyncState.capturePaused && SyncState.syncMode -> "Phone was locked"
+            SyncState.locked -> "Rainbow while locked"
+            SyncState.capturePaused && SyncState.syncMode -> "Rainbow"
             SyncState.rainbow -> "Rainbow"
             SyncState.syncMode -> "Screen sync"
             else -> "Voice colour"

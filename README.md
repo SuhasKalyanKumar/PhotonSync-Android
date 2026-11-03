@@ -10,7 +10,7 @@ Open the file on your phone and allow **Install unknown apps** when Android asks
 
 - **Screen sync:** the strip follows the colour on your screen, even in the background
 - **Auto connect:** pick your strip once and it connects by itself from then on
-- **Screen follow:** the strip turns off with your screen and comes back when it turns on
+- **Rainbow while locked:** the strip glides through colours while your phone is locked, then goes back to what it was doing when you unlock
 - **Timer:** daily on and off times that run on the strip's own clock, so your phone can be off
 - **Voice control:** works offline, and the mic stays off until you turn it on
 - **Rainbow mode:** a slow, calm glide through seven colours
@@ -29,11 +29,11 @@ The voice model is about 40 MB and downloads the first time you turn on the mic.
 
 ## Skip the prompt after unlocking
 
-Android 15 and newer ends screen sharing whenever the phone locks, so you open PhotonSync and allow sharing again.
+Android 15 and newer ends screen sharing whenever the phone locks, so the strip plays the rainbow until you open PhotonSync and allow sharing again.
 
-To skip that, install the **no-tap** APK from the same release instead, then turn on **PhotonSync no-tap sync** in Accessibility settings. If the option is greyed out, open App info for PhotonSync, tap the ⋮ menu, then **Allow restricted settings**.
+To skip that, turn on **PhotonSync no-tap sync** in Accessibility settings, and sync comes back by itself when you unlock. If the option is greyed out, open App info for PhotonSync, tap the ⋮ menu, then **Allow restricted settings**.
 
-No-tap sync only reads your screen's average colour, and nothing is saved or sent anywhere. Colours update about 3 times a second, and force-stopping the app turns the option off. Because it uses Accessibility, Android may warn you more about this version.
+No-tap sync only reads your screen's average colour, and nothing is saved or sent anywhere. Colours update about 3 times a second, and force-stopping the app turns the option off.
 
 ## If Play Protect warns you
 
