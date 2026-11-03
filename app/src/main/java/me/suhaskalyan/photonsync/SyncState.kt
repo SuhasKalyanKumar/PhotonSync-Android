@@ -14,6 +14,7 @@ object SyncState {
     @Volatile var brightness = 1f
     @Volatile var powerOn = true
     @Volatile var syncMode = true // true = screen sync, false = static voice colour
+    @Volatile var rainbow = false // looping the intro's glide, by voice command
     @Volatile var micOn = false
     @Volatile var capturePaused = false // screen share ended by a lock; waiting for consent after unlock
     @Volatile var screenshotMode = false // colours come from ScreenColorService instead of a screen share

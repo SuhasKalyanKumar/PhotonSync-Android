@@ -2,216 +2,179 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/base"
-    android:fitsSystemWindows="true">
+    android:background="@color/base">
 
-    <LinearLayout
+    <me.suhaskalyan.photonsync.AuroraView
+        android:id="@+id/aurora"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <ScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:padding="20dp">
+        android:fillViewport="true"
+        android:fitsSystemWindows="true"
+        android:scrollbars="none">
 
-        <!-- BRAND HEADER -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="✨ PHOTONSYNC"
-            android:textColor="@color/mauve"
-            android:textSize="22sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            android:text="Ambient Screen &amp; Voice-Reactive BLE Engine"
-            android:textColor="@color/subtext"
-            android:textSize="12sp" />
-
-        <!-- LIVE STATUS CARD -->
-        <LinearLayout
-            android:id="@+id/status_card"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@drawable/card"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:padding="14dp">
-
-            <View
-                android:id="@+id/swatch"
-                android:layout_width="48dp"
-                android:layout_height="48dp" />
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="14dp"
-                android:layout_weight="1"
-                android:orientation="vertical">
-
-                <TextView
-                    android:id="@+id/status"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textColor="@color/text"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/hex"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:fontFamily="monospace"
-                    android:textColor="@color/subtext"
-                    android:textSize="13sp" />
-            </LinearLayout>
-        </LinearLayout>
-
-        <!-- START / STOP -->
-        <Button
-            android:id="@+id/sync_button"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:layout_marginTop="12dp"
-            android:stateListAnimator="@null"
-            android:textColor="@color/crust"
-            android:textSize="14sp"
-            android:textStyle="bold" />
-
-        <!-- SELECTED STRIP -->
-        <Button
-            android:id="@+id/strip_button"
-            android:layout_width="match_parent"
-            android:layout_height="44dp"
-            android:layout_marginTop="8dp"
-            android:stateListAnimator="@null"
-            android:textAllCaps="false"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-
-        <!-- MICROPHONE TOGGLE -->
-        <Button
-            android:id="@+id/mic_button"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:layout_marginTop="8dp"
-            android:stateListAnimator="@null"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-
-        <!-- AUTO-RESUME AFTER UNLOCK (display-over-apps permission + PROJECT_MEDIA grant) -->
-        <Button
-            android:id="@+id/auto_resume_button"
-            android:layout_width="match_parent"
-            android:layout_height="44dp"
-            android:layout_marginTop="8dp"
-            android:stateListAnimator="@null"
-            android:textSize="12sp"
-            android:textStyle="bold" />
-
-        <!-- VOICE COMMAND GUIDE -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:background="@drawable/card"
             android:orientation="vertical"
-            android:padding="14dp">
+            android:paddingHorizontal="24dp"
+            android:paddingTop="20dp"
+            android:paddingBottom="24dp">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="4dp"
-                android:text="🎙️ Voice Engine Syntax"
-                android:textColor="@color/mauve"
-                android:textStyle="bold" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:lineSpacingExtra="2dp"
-                android:text="• Power:  &quot;On&quot; / &quot;Off&quot;\n• Modes:  &quot;Sync&quot; / &quot;Normal&quot;\n• Levels:  &quot;Low&quot; / &quot;Medium&quot; / &quot;High&quot;\n• Colors:  &quot;Red&quot;, &quot;Cyan&quot;, &quot;Purple&quot;, &quot;Pink&quot;…"
+                android:layout_gravity="center_horizontal"
+                android:fontFamily="@font/michroma"
+                android:letterSpacing="0.45"
+                android:text="PHOTONSYNC"
                 android:textColor="@color/text"
                 android:textSize="13sp" />
-        </LinearLayout>
 
-        <!-- BRIGHTNESS CARD -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:background="@drawable/card"
-            android:orientation="vertical"
-            android:padding="14dp">
+            <!-- LIVE COLOUR -->
+            <me.suhaskalyan.photonsync.OrbView
+                android:id="@+id/orb"
+                android:layout_width="230dp"
+                android:layout_height="230dp"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="14dp" />
 
+            <TextView
+                android:id="@+id/status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:maxLines="1"
+                android:textColor="@color/text"
+                android:textSize="24sp" />
+
+            <TextView
+                android:id="@+id/hex"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:gravity="center"
+                android:textColor="@color/subtext"
+                android:textSize="12sp" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:minHeight="20dp" />
+
+            <!-- START / STOP -->
+            <Button
+                android:id="@+id/sync_button"
+                android:layout_width="match_parent"
+                android:layout_height="58dp"
+                android:fontFamily="@font/michroma"
+                android:letterSpacing="0.3"
+                android:stateListAnimator="@null"
+                android:textSize="14sp" />
+
+            <!-- SELECTED STRIP -->
+            <Button
+                android:id="@+id/strip_button"
+                style="@style/GlassButton"
+                android:layout_marginTop="10dp" />
+
+            <!-- STRIP TIMER -->
+            <Button
+                android:id="@+id/timer_button"
+                style="@style/GlassButton"
+                android:layout_marginTop="8dp" />
+
+            <!-- MICROPHONE TOGGLE -->
+            <Button
+                android:id="@+id/mic_button"
+                style="@style/GlassButton"
+                android:layout_marginTop="8dp" />
+
+            <!-- BRIGHTNESS -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:gravity="center_vertical"
                 android:orientation="horizontal">
 
                 <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:letterSpacing="0.2"
+                    android:text="LIGHT"
+                    android:textColor="@color/subtext"
+                    android:textSize="11sp" />
+
+                <SeekBar
+                    android:id="@+id/brightness"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="💡 Master Brightness"
-                    android:textColor="@color/mauve"
-                    android:textStyle="bold" />
+                    android:max="100"
+                    android:progressBackgroundTint="@color/surface0"
+                    android:progressTint="@color/mauve"
+                    android:thumbTint="@color/mauve" />
 
                 <TextView
                     android:id="@+id/brightness_value"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textColor="@color/blue"
-                    android:textStyle="bold" />
+                    android:textColor="@color/text"
+                    android:textSize="12sp" />
             </LinearLayout>
 
-            <SeekBar
-                android:id="@+id/brightness"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:max="100"
-                android:progressBackgroundTint="@color/surface0"
-                android:progressTint="@color/mauve"
-                android:thumbTint="@color/mauve" />
-        </LinearLayout>
-
-        <!-- SYSTEM TELEMETRY -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_marginTop="12dp"
-            android:layout_weight="1"
-            android:background="@drawable/card"
-            android:orientation="vertical"
-            android:padding="12dp">
-
+            <!-- VOICE HELP AND LOGS, TUCKED AWAY -->
             <TextView
+                android:id="@+id/details_toggle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="💻 System Telemetry"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="8dp"
+                android:letterSpacing="0.2"
+                android:padding="10dp"
+                android:text="DETAILS"
                 android:textColor="@color/subtext"
-                android:textStyle="bold" />
+                android:textSize="11sp" />
 
-            <ScrollView
-                android:id="@+id/log_scroll"
+            <LinearLayout
+                android:id="@+id/details"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:layout_marginTop="6dp"
-                android:background="@color/crust"
-                android:padding="8dp">
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
 
                 <TextView
-                    android:id="@+id/log"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:fontFamily="monospace"
-                    android:textColor="@color/green"
-                    android:textIsSelectable="true"
-                    android:textSize="11sp" />
-            </ScrollView>
+                    android:lineSpacingExtra="3dp"
+                    android:text="Say  &quot;On&quot;  &quot;Off&quot;  &quot;Sync&quot;  &quot;Low&quot;  &quot;Medium&quot;  &quot;High&quot;\nor a colour like  &quot;Red&quot;  &quot;Cyan&quot;  &quot;Purple&quot;\nSay  &quot;Rainbow&quot;  for a slow colour glide, and  &quot;Sync&quot;  to go back"
+                    android:textColor="@color/subtext"
+                    android:textSize="12sp" />
+
+                <ScrollView
+                    android:id="@+id/log_scroll"
+                    android:layout_width="match_parent"
+                    android:layout_height="170dp"
+                    android:layout_marginTop="10dp"
+                    android:nestedScrollingEnabled="true">
+
+                    <TextView
+                        android:id="@+id/log"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:textColor="@color/subtext"
+                        android:textIsSelectable="true"
+                        android:textSize="10sp" />
+                </ScrollView>
+            </LinearLayout>
         </LinearLayout>
-    </LinearLayout>
+    </ScrollView>
 </FrameLayout>

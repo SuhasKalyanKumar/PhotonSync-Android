@@ -45,18 +45,16 @@ class ScreenSyncService : Service() {
         private const val ACTION_STOP = "me.suhaskalyan.photonsync.STOP"
         private const val ACTION_TOGGLE_MIC = "me.suhaskalyan.photonsync.TOGGLE_MIC"
         private const val ACTION_RETARGET = "me.suhaskalyan.photonsync.RETARGET"
+        private const val ACTION_APPLY_TIMER = "me.suhaskalyan.photonsync.APPLY_TIMER"
         private const val EXTRA_RESULT_CODE = "result_code"
         private const val EXTRA_RESULT_DATA = "result_data"
         private const val EXTRA_SCREENSHOTS = "screenshots"
         private const val CHANNEL_ID = "screen_sync"
-        private const val RESUME_CHANNEL_ID = "resume_sync"
         private const val NOTIFICATION_ID = 1
-        private const val RESUME_NOTIFICATION_ID = 2
 
         private const val CAPTURE_LONG_SIDE = 120 // about what the desktop samples (every 16th pixel of 1080p)
         private const val TX_INTERVAL_MS = 20L
         private const val SMOOTHING = 0.75f
-        private const val SCREENSHOT_SMOOTHING = 0.08f // about 3 frames a second, so glide between them
         private const val SCREENSHOT_INTERVAL_MS = 340L // Android refuses shots closer together than 333ms
         private const val UI_INTERVAL_MS = 100L
         private const val VOICE_COOLDOWN_MS = 1000L
@@ -65,8 +63,16 @@ class ScreenSyncService : Service() {
         private const val TOO_DARK = 16f
         private const val WAKE_FALLBACK_LEVEL = 128f // shown on wake when the last screen colour was black
 
-        private val POWER_ON_SEQUENCE = listOf(intArrayOf(255, 0, 0), intArrayOf(0, 255, 0), intArrayOf(0, 0, 255))
-        private val POWER_OFF_SEQUENCE = POWER_ON_SEQUENCE.reversed()
+        // Startup glide: red, orange, yellow, green, blue, indigo, violet
+        private val INTRO_COLORS = listOf(
+            intArrayOf(255, 0, 0), intArrayOf(255, 110, 0), intArrayOf(255, 220, 0), intArrayOf(0, 255, 0),
+            intArrayOf(0, 0, 255), intArrayOf(75, 0, 130), intArrayOf(238, 130, 238),
+        )
+        private const val INTRO_STEPS_PER_COLOR = 10
+        private const val ANIMATION_STEP_MS = 30L
+        private const val RAINBOW_STEPS_PER_COLOR = 100
+        private const val RAINBOW_STEP_MS = 50L // 5s from one colour to the next, slow enough to be calming
+        private const val WAKE_COMMANDS_MS = 650L // colours sent while the power commands land would be lost
 
         /** Starts sync, or resumes it after a lock with a fresh screen-capture consent. */
         fun start(context: Context, resultCode: Int, data: Intent) {
@@ -107,6 +113,11 @@ class ScreenSyncService : Service() {
             context.startService(Intent(context, ScreenSyncService::class.java).setAction(ACTION_RETARGET))
         }
 
+        /** Sends the saved timer to the strip now, if sync is running. */
+        fun applyTimer(context: Context) {
+            context.startService(Intent(context, ScreenSyncService::class.java).setAction(ACTION_APPLY_TIMER))
+        }
+
         fun toggleMic(context: Context) {
             context.startService(Intent(context, ScreenSyncService::class.java).setAction(ACTION_TOGGLE_MIC))
         }
@@ -129,6 +140,9 @@ class ScreenSyncService : Service() {
     private val current = FloatArray(3)
     private val lastSent = IntArray(3) { -1 }
     private var animating = false
+    private var animationId = 0
+    private val rainbowFrames by lazy { glide(INTRO_COLORS + listOf(INTRO_COLORS.first()), RAINBOW_STEPS_PER_COLOR) }
+    private var stripPoweredOn = true
     private var lastUiUpdate = 0L
     private val staticColor = intArrayOf(255, 255, 255)
     private val colorBeforeScreenOff = FloatArray(3)
@@ -143,15 +157,13 @@ class ScreenSyncService : Service() {
         super.onCreate()
         thread.start()
         handler = Handler(thread.looper)
-        strip = LedStrip(this, handler, onReady = { playSequence(POWER_ON_SEQUENCE) })
+        strip = LedStrip(this, handler, onReady = ::onStripLinked, shouldBeOn = ::stripShouldBeOn)
         voice = VoiceEngine(this) { text -> handler.post { onVoiceCommand(text) } }
         val notifications = getSystemService(NotificationManager::class.java)
         notifications.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "Screen sync", NotificationManager.IMPORTANCE_LOW)
         )
-        notifications.createNotificationChannel(
-            NotificationChannel(RESUME_CHANNEL_ID, "Resume after unlock", NotificationManager.IMPORTANCE_HIGH)
-        )
+        notifications.deleteNotificationChannel("resume_sync") // from older versions
         val screenFilter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_SCREEN_ON)
@@ -172,6 +184,14 @@ class ScreenSyncService : Service() {
             }
             ACTION_TOGGLE_MIC -> {
                 if (SyncState.running) toggleMic() else stopSelf() // nothing to toggle if sync isn't running
+                return START_NOT_STICKY
+            }
+            ACTION_APPLY_TIMER -> {
+                if (SyncState.running) {
+                    handler.post { sendTimer(announce = true) }
+                } else {
+                    stopSelf()
+                }
                 return START_NOT_STICKY
             }
             ACTION_RETARGET -> {
@@ -197,13 +217,14 @@ class ScreenSyncService : Service() {
         if (!resuming) {
             SyncState.powerOn = true
             SyncState.syncMode = true
+            SyncState.rainbow = false
             SyncState.micOn = false
             SyncState.screenOff = false
         }
         SyncState.capturePaused = false
         // Android 14+ requires the service to be foreground before the projection is created
         if (!updateForeground()) {
-            SyncState.log("⚠️ Screen capture could not start.")
+            SyncState.log("Screen capture could not start.")
             if (resuming) pauseState() else stopSelf()
             return START_NOT_STICKY
         }
@@ -216,7 +237,7 @@ class ScreenSyncService : Service() {
             null
         }
         if (mp == null) {
-            SyncState.log("⚠️ Screen capture could not start.")
+            SyncState.log("Screen capture could not start.")
             if (resuming) pauseState() else stopSelf()
             return START_NOT_STICKY
         }
@@ -224,8 +245,7 @@ class ScreenSyncService : Service() {
         projection = mp
         mp.registerCallback(projectionCallback, handler)
         SyncState.running = true
-        getSystemService(NotificationManager::class.java).cancel(RESUME_NOTIFICATION_ID)
-        SyncState.log(if (resuming) "🔓 Screen Sync resumed" else "🖥️ Screen Sync started")
+        SyncState.log(if (resuming) "Screen Sync resumed" else "Screen Sync started")
         handler.post {
             startCapture(mp)
             if (!resuming) {
@@ -239,22 +259,29 @@ class ScreenSyncService : Service() {
     override fun onDestroy() {
         stopping = true
         unregisterReceiver(screenReceiver)
-        getSystemService(NotificationManager::class.java).cancel(RESUME_NOTIFICATION_ID)
         voice.release()
         SyncState.running = false
         SyncState.capturePaused = false
         SyncState.screenshotMode = false
-        SyncState.screenOff = false
         SyncState.micOn = false
         SyncState.color = Color.BLACK
-        SyncState.log("🌙 Screen Sync stopped")
+        SyncState.log("Screen Sync stopped")
         handler.post {
             handler.removeCallbacks(tick)
             handler.removeCallbacks(screenshotLoop)
             virtualDisplay?.release()
             imageReader?.close()
             projection?.stop()
-            strip.shutdown { thread.quitSafely() }
+            val finish = {
+                SyncState.screenOff = false
+                strip.shutdown { thread.quitSafely() }
+            }
+            if (strip.isReady && stripPoweredOn && !SyncState.screenOff) {
+                playOutro()
+                handler.postDelayed(finish, introFrames().size * ANIMATION_STEP_MS)
+            } else {
+                finish()
+            }
         }
         super.onDestroy()
     }
@@ -357,14 +384,27 @@ class ScreenSyncService : Service() {
     /** Runs every 20ms: eases toward the screen colour (or holds the voice colour) and sends it when it changes. */
     private val tick = object : Runnable {
         override fun run() {
+            val wantOn = stripShouldBeOn()
+            if (wantOn && !stripPoweredOn && strip.isReady) {
+                strip.setPower(true)
+                stripPoweredOn = true
+                lastSent.fill(-1)
+            }
             if (!animating) {
-                val smoothing = if (SyncState.screenshotMode) SCREENSHOT_SMOOTHING else SMOOTHING
-                for (c in 0..2) current[c] += smoothing * (target[c] - current[c])
-                val brightness = if (SyncState.powerOn && !SyncState.screenOff) SyncState.brightness else 0f
-                val source = if (SyncState.syncMode) current else FloatArray(3) { staticColor[it].toFloat() }
+                if (!wantOn && stripPoweredOn && strip.isReady) {
+                    strip.setPower(false) // after any off animation has played
+                    stripPoweredOn = false
+                }
+                for (c in 0..2) current[c] += SMOOTHING * (target[c] - current[c])
+                val brightness = if (wantOn) SyncState.brightness else 0f
+                val source = when {
+                    SyncState.rainbow -> rainbowColor()
+                    SyncState.syncMode -> current
+                    else -> FloatArray(3) { staticColor[it].toFloat() }
+                }
                 val out = IntArray(3) { (source[it] * brightness).toInt().coerceIn(0, 255) }
 
-                if (strip.isReady && !out.contentEquals(lastSent)) {
+                if (wantOn && strip.isReady && !out.contentEquals(lastSent)) {
                     strip.sendColor(out[0], out[1], out[2])
                     out.copyInto(lastSent)
                 }
@@ -381,22 +421,63 @@ class ScreenSyncService : Service() {
         }
     }
 
+    private fun stripShouldBeOn() = SyncState.powerOn && !SyncState.screenOff
+
+    private fun onStripLinked() {
+        stripPoweredOn = stripShouldBeOn()
+        SyncState.log(if (stripPoweredOn) "Sent power-on to strip" else "Linked, staying off while the screen is off")
+        playIntro(startDelay = 0L)
+        handler.postDelayed({ sendTimer(announce = false) }, introFrames().size * ANIMATION_STEP_MS + 100)
+    }
+
+    private fun sendTimer(announce: Boolean) {
+        val timer = StripTimer.load(this)
+        val sent = strip.applyTimer(timer)
+        if (announce || (sent && (timer.onEnabled || timer.offEnabled))) {
+            SyncState.log(if (sent) "Timer sent to strip: ${timer.summary}" else "Timer saved. It goes to the strip once it connects.")
+        }
+    }
+
     // -------------------------------------------------------------
     // ANIMATION SEQUENCES
     // -------------------------------------------------------------
-    private fun playSequence(colors: List<IntArray>) {
-        if (SyncState.screenOff) { // never flash a strip that is meant to be dark
+    private fun introFrames(): List<IntArray> = glide(INTRO_COLORS) + listOf(INTRO_COLORS.last())
+
+    /** The intro's colours as a slow, endless loop. */
+    private fun rainbowColor(): FloatArray {
+        val frame = rainbowFrames[((SystemClock.uptimeMillis() / RAINBOW_STEP_MS) % rainbowFrames.size).toInt()]
+        return FloatArray(3) { frame[it].toFloat() }
+    }
+
+    private fun glide(colors: List<IntArray>, stepsPerColor: Int = INTRO_STEPS_PER_COLOR): List<IntArray> = colors.zipWithNext().flatMap { (from, to) ->
+        List(stepsPerColor) { step ->
+            val mix = step.toFloat() / stepsPerColor
+            IntArray(3) { (from[it] + mix * (to[it] - from[it])).roundToInt() }
+        }
+    }
+
+    private fun playIntro(startDelay: Long) = playFrames(introFrames(), startDelay)
+
+    /** The intro backwards. The tick switches the strip off once it finishes, leaving a colour for a timer to show. */
+    private fun playOutro() = playFrames(introFrames().reversed(), startDelay = 0L)
+
+    private fun playFrames(frames: List<IntArray>, startDelay: Long) {
+        val id = ++animationId // a newer animation takes over from one still playing
+        if (SyncState.screenOff) { // never light up a strip that is meant to be dark
+            animating = false
             lastSent.fill(-1)
             return
         }
         animating = true
-        colors.forEachIndexed { i, c ->
-            handler.postDelayed({ strip.sendColor(c[0], c[1], c[2]) }, i * 120L)
+        frames.forEachIndexed { i, c ->
+            handler.postDelayed({ if (id == animationId) strip.sendColor(c[0], c[1], c[2]) }, startDelay + i * ANIMATION_STEP_MS)
         }
         handler.postDelayed({
-            animating = false
-            lastSent.fill(-1)
-        }, colors.size * 120L)
+            if (id == animationId) {
+                animating = false
+                lastSent.fill(-1)
+            }
+        }, startDelay + frames.size * ANIMATION_STEP_MS)
     }
 
     // -------------------------------------------------------------
@@ -407,25 +488,25 @@ class ScreenSyncService : Service() {
             SyncState.micOn = false
             voice.stop()
             updateForeground()
-            SyncState.log("🔇 Voice Commands Muted")
+            SyncState.log("Voice Commands Muted")
             return
         }
         if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            SyncState.log("⚠️ Microphone permission needed. Tap the mic button in the app.")
+            SyncState.log("Microphone permission needed. Tap the mic button in the app.")
             return
         }
         SyncState.micOn = true
         if (!updateForeground()) {
             SyncState.micOn = false
-            SyncState.log("⚠️ Android blocked the mic from the background. Open PhotonSync and tap the mic there.")
+            SyncState.log("Android blocked the mic from the background. Open PhotonSync and tap the mic there.")
             return
         }
         voice.start()
-        SyncState.log("🎙️ Voice Commands Resumed")
+        SyncState.log("Voice Commands Resumed")
     }
 
     private fun onVoiceCommand(text: String) {
-        SyncState.log("🎙️ [Voice Command]: \"$text\"")
+        SyncState.log("[Voice Command]: \"$text\"")
         val now = SystemClock.uptimeMillis()
         if (now - lastVoiceCommand < VOICE_COOLDOWN_MS) return
         val words = text.split(" ")
@@ -436,23 +517,32 @@ class ScreenSyncService : Service() {
                     lastVoiceCommand = now
                     SyncState.powerOn = true
                     SyncState.syncMode = true
-                    SyncState.log("⚡ Power ON (Screen Sync Active)")
-                    playSequence(POWER_ON_SEQUENCE)
+                    SyncState.rainbow = false
+                    SyncState.log("Power ON (Screen Sync Active)")
+                    playIntro(startDelay = if (stripPoweredOn) 0L else WAKE_COMMANDS_MS)
                 }
             }
             "off" in words || "turn off" in text || "power off" in text -> {
                 if (SyncState.powerOn) {
                     lastVoiceCommand = now
                     SyncState.powerOn = false
-                    SyncState.log("🌙 Power OFF")
-                    playSequence(POWER_OFF_SEQUENCE)
+                    SyncState.log("Power OFF")
+                    playOutro()
                 }
             }
             "normal" in words || "sync" in words || "screen sync" in text -> {
                 lastVoiceCommand = now
                 SyncState.syncMode = true
+                SyncState.rainbow = false
                 SyncState.powerOn = true
-                SyncState.log("🖥️ Resumed Screen Sync Mode")
+                SyncState.log("Resumed Screen Sync Mode")
+            }
+            "rainbow" in words -> {
+                lastVoiceCommand = now
+                SyncState.syncMode = false
+                SyncState.rainbow = true
+                SyncState.powerOn = true
+                SyncState.log("Rainbow mode")
             }
             "low" in words -> setBrightness(now, 30, "LOW")
             "medium" in words -> setBrightness(now, 60, "MEDIUM")
@@ -462,8 +552,9 @@ class ScreenSyncService : Service() {
                 if (match != null && SyncState.powerOn) {
                     lastVoiceCommand = now
                     SyncState.syncMode = false
+                    SyncState.rainbow = false
                     VoiceEngine.COLOR_DICTIONARY.getValue(match).copyInto(staticColor)
-                    SyncState.log("🎨 Color Changed -> ${match.split(" ").joinToString(" ") { w -> w.replaceFirstChar { it.uppercase() } }}")
+                    SyncState.log("Color Changed -> ${match.split(" ").joinToString(" ") { w -> w.replaceFirstChar { it.uppercase() } }}")
                 }
             }
         }
@@ -473,7 +564,7 @@ class ScreenSyncService : Service() {
     private fun setBrightness(now: Long, percent: Int, label: String) {
         lastVoiceCommand = now
         SyncState.brightness = percent / 100f
-        SyncState.log("💡 Brightness -> $label ($percent%)")
+        SyncState.log("Brightness -> $label ($percent%)")
     }
 
     // -------------------------------------------------------------
@@ -496,9 +587,9 @@ class ScreenSyncService : Service() {
         lastScreenOff = SystemClock.uptimeMillis()
         SyncState.screenOff = true
         // Send it now: the tick timer stops once the CPU sleeps
-        if (!animating && strip.isReady) {
-            strip.sendColor(0, 0, 0)
-            lastSent.fill(0)
+        if (!animating && strip.isReady && stripPoweredOn) {
+            strip.setPower(false)
+            stripPoweredOn = false
         }
         SyncState.notifyChanged()
     }
@@ -526,7 +617,7 @@ class ScreenSyncService : Service() {
             updateForeground()
             handler.removeCallbacks(screenshotLoop)
             handler.post(screenshotLoop)
-            SyncState.log("🔓 Screen Sync resumed")
+            SyncState.log("Screen Sync resumed")
             SyncState.notifyChanged()
         } else {
             promptResume()
@@ -539,18 +630,19 @@ class ScreenSyncService : Service() {
     private fun startScreenshotSync() {
         SyncState.powerOn = true
         SyncState.syncMode = true
+        SyncState.rainbow = false
         SyncState.micOn = false
         SyncState.screenOff = false
         SyncState.capturePaused = false
         SyncState.screenshotMode = true
         if (!updateForeground()) {
             SyncState.screenshotMode = false
-            SyncState.log("⚠️ Screen sync could not start.")
+            SyncState.log("Screen sync could not start.")
             stopSelf()
             return
         }
         SyncState.running = true
-        SyncState.log("🖥️ Screen Sync started (no-tap mode)")
+        SyncState.log("Screen Sync started (no-tap mode)")
         handler.post {
             strip.start()
             handler.post(tick)
@@ -576,7 +668,7 @@ class ScreenSyncService : Service() {
                 }
                 !screenshotWarningShown -> {
                     screenshotWarningShown = true
-                    SyncState.log("⚠️ No-tap mode was turned off in Accessibility settings, so colours stopped updating.")
+                    SyncState.log("No-tap mode was turned off in Accessibility settings, so colours stopped updating.")
                 }
             }
             handler.postDelayed(this, SCREENSHOT_INTERVAL_MS)
@@ -590,7 +682,7 @@ class ScreenSyncService : Service() {
             if (isLocked() || SyncState.screenOff || screenJustSlept) {
                 pauseCapture()
             } else {
-                SyncState.log("📴 Screen sharing was stopped.")
+                SyncState.log("Screen sharing was stopped.")
                 stopSelf()
             }
         }
@@ -608,7 +700,7 @@ class ScreenSyncService : Service() {
         imageReader = null
         projection?.unregisterCallback(projectionCallback)
         projection = null
-        SyncState.log("🔒 Phone locked: live sync restarts when you unlock.")
+        SyncState.log("Phone locked: live sync restarts when you unlock.")
         pauseState()
         if (!isLocked()) resumeCaptureIfPaused() // the share ended after the phone had already woken up
     }
@@ -620,38 +712,20 @@ class ScreenSyncService : Service() {
     }
 
     /**
-     * Restarts capture straight after an unlock. With the PROJECT_MEDIA grant this needs no tap at all. Without it,
-     * Android insists on its dialog, so a notification stays as the fallback.
+     * Restarts capture after an unlock. Android shows its own sharing screen unless no-tap sync is on in Accessibility
+     * settings. Without the overlay permission it can't open from the background, so opening the app resumes instead.
      */
     private fun promptResume() {
         val now = SystemClock.uptimeMillis()
         if (lastResumePrompt != 0L && now - lastResumePrompt < PROMPT_DEBOUNCE_MS) return
         lastResumePrompt = now
-
-        val canOpenFromBackground = Settings.canDrawOverlays(this)
-        if (canOpenFromBackground) {
-            try {
-                startActivity(Intent(this, ResumeActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            } catch (e: Exception) {
-                SyncState.log("⚠️ Could not restart screen sync: ${e.message}")
-            }
+        if (!Settings.canDrawOverlays(this)) return
+        try {
+            startActivity(Intent(this, ResumeActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: Exception) {
+            SyncState.log("Could not restart screen sync: ${e.message}")
         }
-        if (canOpenFromBackground && canCaptureWithoutPrompt(this)) return
-
-        val notification = Notification.Builder(this, RESUME_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Resume PhotonSync")
-            .setContentText("Tap to turn screen sync back on")
-            .setContentIntent(resumeIntent())
-            .setAutoCancel(true)
-            .setTimeoutAfter(60_000)
-            .build()
-        getSystemService(NotificationManager::class.java).notify(RESUME_NOTIFICATION_ID, notification)
     }
-
-    private fun resumeIntent(): PendingIntent = PendingIntent.getActivity(
-        this, 4, Intent(this, ResumeActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
-    )
 
     // -------------------------------------------------------------
     // NOTIFICATION
@@ -706,9 +780,9 @@ class ScreenSyncService : Service() {
             .setContentTitle("PhotonSync")
             .setContentText(
                 (if (SyncState.capturePaused) "Paused while locked" else "Screen sync on") +
-                    (if (SyncState.micOn) " · 🎙️ listening" else " · mic off")
+                    (if (SyncState.micOn) " · listening" else " · mic off")
             )
-            .setContentIntent(if (SyncState.capturePaused) resumeIntent() else openApp)
+            .setContentIntent(openApp)
             .setOngoing(true)
             .addAction(Notification.Action.Builder(Icon.createWithResource(this, R.drawable.ic_mic), micLabel, mic).build())
             .addAction(Notification.Action.Builder(Icon.createWithResource(this, R.drawable.ic_notification), "Stop", stop).build())

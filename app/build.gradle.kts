@@ -4,7 +4,7 @@ plugins {
     id("com.android.application")
 }
 
-val appVersion = "1.2.0"
+val appVersion = "1.3.0"
 
 // Release signing key lives in keystore/ (gitignored). Without it, release builds are left unsigned.
 val keystoreProps = Properties().apply {
@@ -20,7 +20,7 @@ android {
         applicationId = "me.suhaskalyan.photonsync"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
+        versionCode = 4
         versionName = appVersion
 
         // Vosk ships native code; these two ABIs cover practically every phone and keep the APK small

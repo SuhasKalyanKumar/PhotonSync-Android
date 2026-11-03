@@ -3,7 +3,6 @@ package me.suhaskalyan.photonsync
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.app.AlertDialog
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.Intent
@@ -11,7 +10,6 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.location.LocationManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -36,11 +34,12 @@ class MainActivity : Activity() {
 
     private lateinit var syncButton: Button
     private lateinit var stripButton: Button
+    private lateinit var timerButton: Button
     private lateinit var micButton: Button
-    private lateinit var autoResumeButton: Button
     private lateinit var statusText: TextView
     private lateinit var hexText: TextView
-    private lateinit var swatch: GradientDrawable
+    private lateinit var orb: OrbView
+    private lateinit var aurora: AuroraView
     private lateinit var slider: SeekBar
     private lateinit var brightnessValue: TextView
     private lateinit var logText: TextView
@@ -56,14 +55,18 @@ class MainActivity : Activity() {
 
         syncButton = findViewById(R.id.sync_button)
         stripButton = findViewById(R.id.strip_button)
+        timerButton = findViewById(R.id.timer_button)
         micButton = findViewById(R.id.mic_button)
-        autoResumeButton = findViewById(R.id.auto_resume_button)
         statusText = findViewById(R.id.status)
         hexText = findViewById(R.id.hex)
         logText = findViewById(R.id.log)
         logScroll = findViewById(R.id.log_scroll)
-        swatch = rounded(Color.BLACK)
-        findViewById<View>(R.id.swatch).background = swatch
+        orb = findViewById(R.id.orb)
+        aurora = findViewById(R.id.aurora)
+        val details = findViewById<View>(R.id.details)
+        findViewById<View>(R.id.details_toggle).setOnClickListener {
+            details.visibility = if (details.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        }
 
         // MASTER BRIGHTNESS
         val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
@@ -94,20 +97,17 @@ class MainActivity : Activity() {
             changingStrip = true
             requestPermissionsThenStart()
         }
-        micButton.setOnClickListener { toggleMic() }
-        autoResumeButton.setOnClickListener {
-            if (noTapReady()) {
-                SyncState.log("ℹ️ No-tap sync is already on.")
-            } else if (Build.VERSION.SDK_INT >= 30) {
-                showNoTapSetup()
-            } else {
-                // Too old for screenshots: the best on offer is the dialog opening by itself after unlock
-                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+        timerButton.setOnClickListener {
+            showTimerDialog(this) {
+                if (SyncState.running) {
+                    ScreenSyncService.applyTimer(this)
+                } else {
+                    SyncState.log("Timer saved. Start sync once to send it to your strip.")
+                }
+                render()
             }
         }
-        findViewById<View>(R.id.status_card).setOnClickListener {
-            if (SyncState.running && SyncState.capturePaused) startActivity(Intent(this, ResumeActivity::class.java))
-        }
+        micButton.setOnClickListener { toggleMic() }
 
         handleMicExtra(intent)
 
@@ -125,6 +125,9 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         SyncState.addListener(listener)
+        if (SyncState.running && SyncState.capturePaused && !ScreenColorService.isEnabled) {
+            startActivity(Intent(this, ResumeActivity::class.java))
+        }
         render()
     }
 
@@ -137,27 +140,28 @@ class MainActivity : Activity() {
     private fun render() {
         val running = SyncState.running
         val strip = SyncState.stripName
-        syncButton.text = if (running) "⏹  STOP SCREEN SYNC" else "▶  START SCREEN SYNC"
-        syncButton.background = rounded(getColor(if (running) R.color.red else R.color.green))
+        syncButton.text = if (running) "STOP" else "START"
+        syncButton.background = if (running) glass(getColor(R.color.red)) else pill(getColor(R.color.mauve))
+        syncButton.setTextColor(getColor(if (running) R.color.text else R.color.crust))
 
-        micButton.text = if (SyncState.micOn) "🎙️  VOICE RECOGNITION: LISTENING" else "🎙️  VOICE RECOGNITION: OFF"
-        micButton.background = rounded(getColor(if (SyncState.micOn) R.color.blue else R.color.surface0))
-        micButton.setTextColor(getColor(if (SyncState.micOn) R.color.crust else R.color.text))
+        micButton.text = if (SyncState.micOn) "Voice  ·  listening" else "Voice  ·  off"
+        micButton.background = glass(if (SyncState.micOn) getColor(R.color.blue) else null)
+        micButton.setTextColor(getColor(R.color.text))
         micButton.alpha = if (running) 1f else 0.5f
 
         val savedName = SavedStrip.name(this) ?: SavedStrip.address(this)
-        stripButton.text = if (savedName != null) "🔌  $savedName  ·  CHANGE" else "🔌  SELECT YOUR LED STRIP"
-        stripButton.background = rounded(getColor(R.color.surface0))
+        stripButton.text = if (savedName != null) "$savedName  ·  change" else "Select your LED strip"
+        stripButton.background = glass(null)
         stripButton.setTextColor(getColor(R.color.text))
 
-        val autoResume = noTapReady()
-        autoResumeButton.text = if (autoResume) "🔓  NO-TAP SYNC AFTER UNLOCK: ON" else "🔓  NO-TAP SYNC AFTER UNLOCK: TAP TO SET UP"
-        autoResumeButton.background = rounded(getColor(if (autoResume) R.color.mauve else R.color.surface0))
-        autoResumeButton.setTextColor(getColor(if (autoResume) R.color.crust else R.color.text))
+        timerButton.text = "Timer  ·  ${StripTimer.load(this).summary}"
+        timerButton.background = glass(null)
+        timerButton.setTextColor(getColor(R.color.text))
+
 
         statusText.text = when {
             !running -> "Idle"
-            SyncState.capturePaused -> if (autoResume) "Paused · resumes on unlock" else "Paused · tap here to resume"
+            SyncState.capturePaused -> "Paused · resumes on unlock"
             strip != null -> "Linked: $strip"
             else -> "Waiting for ${savedName ?: "LED strip"}…"
         }
@@ -165,12 +169,14 @@ class MainActivity : Activity() {
             !SyncState.powerOn -> "Power off"
             SyncState.screenOff -> "Screen off"
             SyncState.capturePaused && SyncState.syncMode -> "Phone was locked"
+            SyncState.rainbow -> "Rainbow"
             SyncState.syncMode -> "Screen sync"
             else -> "Voice colour"
         }
         val color = if (running) SyncState.color else Color.BLACK
-        swatch.setColor(color)
-        hexText.text = if (running) "#%06X · %s".format(color and 0xFFFFFF, mode) else "Tap start to mirror your screen"
+        orb.setAccent(color)
+        aurora.setAccent(color)
+        hexText.text = if (running) "#%06X  ·  %s".format(color and 0xFFFFFF, mode) else "Ready when you are"
 
         // Voice "low / medium / high" moves the slider too
         val percent = (SyncState.brightness * 100).roundToInt()
@@ -184,9 +190,16 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun rounded(color: Int) = GradientDrawable().apply {
-        cornerRadius = 12 * resources.displayMetrics.density
+    private fun pill(color: Int) = GradientDrawable().apply {
+        cornerRadius = 100 * resources.displayMetrics.density
         setColor(color)
+    }
+
+    /** See-through with a hairline edge, so the moving colours show behind it. */
+    private fun glass(edge: Int?) = GradientDrawable().apply {
+        cornerRadius = 100 * resources.displayMetrics.density
+        setColor(Color.argb(26, 255, 255, 255))
+        setStroke((resources.displayMetrics.density).toInt().coerceAtLeast(1), edge ?: Color.argb(46, 255, 255, 255))
     }
 
     // -------------------------------------------------------------
@@ -200,7 +213,7 @@ class MainActivity : Activity() {
 
     private fun toggleMic() {
         if (!SyncState.running) {
-            SyncState.log("ℹ️ Start screen sync first, then turn on the mic.")
+            SyncState.log("Start screen sync first, then turn on the mic.")
             return
         }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -233,7 +246,7 @@ class MainActivity : Activity() {
                 if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
                     ScreenSyncService.toggleMic(this)
                 } else {
-                    SyncState.log("⚠️ Microphone permission denied. Voice commands stay off.")
+                    SyncState.log("Microphone permission denied. Voice commands stay off.")
                 }
             }
             REQ_PERMISSIONS -> {
@@ -245,7 +258,7 @@ class MainActivity : Activity() {
                 if (denied.isEmpty()) {
                     ensureBluetoothOn()
                 } else {
-                    SyncState.log("⚠️ Bluetooth permission denied. PhotonSync can't reach your strip without it.")
+                    SyncState.log("Bluetooth permission denied. PhotonSync can't reach your strip without it.")
                 }
             }
         }
@@ -255,11 +268,11 @@ class MainActivity : Activity() {
     private fun ensureBluetoothOn() {
         val adapter = getSystemService(BluetoothManager::class.java)?.adapter
         if (adapter == null) {
-            SyncState.log("⚠️ This phone has no Bluetooth adapter.")
+            SyncState.log("This phone has no Bluetooth adapter.")
             return
         }
         if (Build.VERSION.SDK_INT in 28..30 && !getSystemService(LocationManager::class.java).isLocationEnabled) {
-            SyncState.log("ℹ️ Turn on Location: Android 11 and older need it to scan for Bluetooth devices.")
+            SyncState.log("Turn on Location: Android 11 and older need it to scan for Bluetooth devices.")
         }
         if (adapter.isEnabled) {
             pickStripOrContinue()
@@ -278,32 +291,12 @@ class MainActivity : Activity() {
             onPicked = { address, name ->
                 changingStrip = false
                 SavedStrip.save(this, address, name)
-                SyncState.log("📌 Strip selected: ${name ?: "Unknown device"} ($address)")
+                SyncState.log("Strip selected: ${name ?: "Unknown device"} ($address)")
                 if (SyncState.running) ScreenSyncService.retarget(this) else requestScreenCapture()
                 render()
             },
             onCancelled = { changingStrip = false },
         ).also { it.show() }
-    }
-
-    private fun noTapReady() = ScreenColorService.isEnabled ||
-        (Settings.canDrawOverlays(this) && ScreenSyncService.canCaptureWithoutPrompt(this))
-
-    private fun showNoTapSetup() {
-        AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
-            .setTitle("Turn on no-tap sync")
-            .setMessage(
-                "Android asks for screen-share consent after every lock. To skip that, turn on " +
-                    "\"${getString(R.string.screen_color_service_label)}\" in Accessibility settings.\n\n" +
-                    "It only works out your screen's average colour. Nothing is saved or sent anywhere. " +
-                    "Colours update about 3 times a second, a little less smooth than screen sharing.\n\n" +
-                    "If it's greyed out: open App info for PhotonSync, tap ⋮, then Allow restricted settings."
-            )
-            .setPositiveButton("Open settings") { _, _ ->
-                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            }
-            .setNegativeButton("Close", null)
-            .show()
     }
 
     private fun requestScreenCapture() {
@@ -318,13 +311,13 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         when (requestCode) {
             REQ_ENABLE_BT -> {
-                if (resultCode == RESULT_OK) pickStripOrContinue() else SyncState.log("⚠️ Bluetooth must be on to reach your strip.")
+                if (resultCode == RESULT_OK) pickStripOrContinue() else SyncState.log("Bluetooth must be on to reach your strip.")
             }
             REQ_CAPTURE -> {
                 if (resultCode == RESULT_OK && data != null) {
                     ScreenSyncService.start(this, resultCode, data)
                 } else {
-                    SyncState.log("⚠️ Screen capture permission denied.")
+                    SyncState.log("Screen capture permission denied.")
                 }
             }
         }

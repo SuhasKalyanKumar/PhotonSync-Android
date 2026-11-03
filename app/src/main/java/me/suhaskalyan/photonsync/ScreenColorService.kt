@@ -76,7 +76,7 @@ class ScreenColorService : AccessibilityService() {
                     val n = pixels.size.toFloat()
                     onColor(r / n, g / n, b / n)
                 } catch (e: RuntimeException) {
-                    SyncState.log("⚠️ Screen read failed: ${e.message}")
+                    SyncState.log("Screen read failed: ${e.message}")
                 } finally {
                     buffer.close()
                 }

@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Catppuccin Mocha, same palette as the desktop dashboard -->
 <resources>
-    <color name="base">#1E1E2E</color>
-    <color name="mantle">#181825</color>
-    <color name="crust">#11111B</color>
-    <color name="surface0">#313244</color>
+    <color name="base">#07070D</color>
+    <color name="mantle">#0D0D16</color>
+    <color name="crust">#0F0F1A</color>
+    <color name="surface0">#2A2A40</color>
     <color name="overlay0">#6C7086</color>
     <color name="subtext">#A6ADC8</color>
     <color name="text">#CDD6F4</color>

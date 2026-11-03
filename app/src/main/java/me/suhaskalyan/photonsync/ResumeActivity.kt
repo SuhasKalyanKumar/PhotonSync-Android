@@ -29,7 +29,7 @@ class ResumeActivity : Activity() {
         if (resultCode == RESULT_OK && data != null) {
             ScreenSyncService.start(this, resultCode, data)
         } else {
-            SyncState.log("ℹ️ Resume skipped. Tap the PhotonSync notification to resume.")
+            SyncState.log("Resume skipped. Open PhotonSync to resume.")
         }
         finish()
     }

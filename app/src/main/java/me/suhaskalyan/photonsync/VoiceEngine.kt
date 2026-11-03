@@ -39,7 +39,7 @@ class VoiceEngine(private val context: Context, private val onCommand: (String) 
 
         private val VALID_PHRASES = listOf(
             "turn on", "turn off", "power on", "power off", "on", "off",
-            "screen sync", "sync", "normal",
+            "screen sync", "sync", "normal", "rainbow",
             "low brightness", "medium brightness", "high brightness", "low", "medium", "high",
         ) + COLOR_DICTIONARY.keys
 
@@ -63,9 +63,9 @@ class VoiceEngine(private val context: Context, private val onCommand: (String) 
                 val service = SpeechService(Recognizer(m, SAMPLE_RATE, GRAMMAR), SAMPLE_RATE)
                 service.startListening(listener)
                 speech = service
-                SyncState.log("🎙️ Voice engine listening")
+                SyncState.log("Voice engine listening")
             } catch (e: Exception) {
-                SyncState.log("⚠️ Voice Engine Error: ${e.message}")
+                SyncState.log("Voice Engine Error: ${e.message}")
             }
         }
     }
@@ -77,7 +77,7 @@ class VoiceEngine(private val context: Context, private val onCommand: (String) 
             service.stop()
             service.shutdown()
             speech = null
-            SyncState.log("🔇 Voice engine stopped (mic closed)")
+            SyncState.log("Voice engine stopped (mic closed)")
         }
     }
 
@@ -102,7 +102,7 @@ class VoiceEngine(private val context: Context, private val onCommand: (String) 
         override fun onFinalResult(hypothesis: String) {}
 
         override fun onError(exception: Exception) {
-            SyncState.log("⚠️ Voice Engine Error: ${exception.message}")
+            SyncState.log("Voice Engine Error: ${exception.message}")
         }
 
         override fun onTimeout() {}
@@ -114,19 +114,19 @@ class VoiceEngine(private val context: Context, private val onCommand: (String) 
     private fun loadModel(): Model? {
         val dir = File(context.filesDir, MODEL_NAME)
         if (!File(dir, "am/final.mdl").exists()) {
-            SyncState.log("⏳ Downloading voice model (~40MB, one time only)...")
+            SyncState.log("Downloading voice model (~40MB, one time only)...")
             try {
                 downloadModel(dir)
             } catch (e: Exception) {
-                SyncState.log("⚠️ Failed to download voice model: ${e.message}")
+                SyncState.log("Failed to download voice model: ${e.message}")
                 return null
             }
-            SyncState.log("✅ Voice model ready")
+            SyncState.log("Voice model ready")
         }
         return try {
             Model(dir.absolutePath)
         } catch (e: Exception) {
-            SyncState.log("⚠️ Voice model failed to load: ${e.message}")
+            SyncState.log("Voice model failed to load: ${e.message}")
             null
         }
     }
